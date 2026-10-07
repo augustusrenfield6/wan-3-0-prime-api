@@ -3,17 +3,20 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "argolink-wan-prime"
-version = "0.1.0"
-description = "Argolink Wan 3.0 Prime API client and workflow examples"
+name = "wan-3-prime-api"
+version = "0.2.0"
+description = "Python client and MCP server for the Wan 3.0 Prime video API (text and reference to video)"
+readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.9"
 dependencies = ["requests>=2.31,<3"]
 
-[tool.pytest.ini_options]
-addopts = "-q"
-
 [project.optional-dependencies]
-mcp = ["mcp[cli]>=1,<2"]
+mcp = ["mcp>=2,<3"]  # the MCP server needs Python 3.10+
+test = ["pytest>=8"]
 
 [tool.setuptools]
 py-modules = ["wan_api", "mcp_server"]
+
+[tool.pytest.ini_options]
+addopts = "-q"

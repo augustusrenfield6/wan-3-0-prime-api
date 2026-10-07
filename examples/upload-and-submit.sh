@@ -1,42 +1,40 @@
 #!/usr/bin/env bash
+# Upload one local image or video (free ticket + signed PUT), then use it as a reference.
 set -euo pipefail
 
-: "${ARGOLINK_API_KEY:?Set ARGOLINK_API_KEY first}"
-BASE="${ARGOLINK_BASE_URL:-https://api.argolink.io}"
-FILE="${1:?Usage: $0 FILE [image|video|audio]}"
-KIND="${2:?Usage: $0 FILE [image|video|audio]}"
+: "${WAN_API_KEY:?Set WAN_API_KEY first}"
+BASE="${WAN_BASE_URL:-https://argolink.io/v1}"
+FILE="${1:?Usage: $0 FILE image|video}"
+KIND="${2:?Usage: $0 FILE image|video}"
 
 case "$(uname -s)" in
   Darwin) SIZE_BYTES=$(stat -f%z "$FILE") ;;
   *) SIZE_BYTES=$(stat -c%s "$FILE") ;;
 esac
-CONTENT_TYPE=$(file --brief --mime-type "$FILE")
 case "$KIND" in
-  image) REFERENCE_FIELD="reference_images" ;;
-  video) REFERENCE_FIELD="reference_videos" ;;
-  audio) REFERENCE_FIELD="reference_audios" ;;
-  *) echo "kind must be image, video, or audio" >&2; exit 2 ;;
+  image) FIELD=reference_images; MENTION="@Image 1" ;;
+  video) FIELD=reference_videos; MENTION="@Video 1" ;;
+  *) echo "kind must be image or video (audio cannot be the only reference on wan-3-prime)" >&2; exit 2 ;;
 esac
+CONTENT_TYPE=$(file --brief --mime-type "$FILE")
 
 TICKET=$(curl --fail-with-body --silent --show-error \
-  -X POST "$BASE/v1/media/uploads" \
-  -H "Authorization: Bearer $ARGOLINK_API_KEY" \
+  -X POST "$BASE/media/uploads" \
+  -H "Authorization: Bearer $WAN_API_KEY" \
   -H 'Content-Type: application/json' \
-  --data "$(jq -n --arg kind "$KIND" --arg type "$CONTENT_TYPE" --argjson size "$SIZE_BYTES" '{model:"wan-3-prime",type:$kind,content_type:$type,size_bytes:$size}')")
-UPLOAD_URL=$(jq -er '.upload_url' <<<"$TICKET")
-MEDIA_URL=$(jq -er '.media_url' <<<"$TICKET")
+  --data "$(jq -n --arg kind "$KIND" --arg type "$CONTENT_TYPE" --argjson size "$SIZE_BYTES" \
+    '{model: "wan-3-prime", type: $kind, content_type: $type, size_bytes: $size}')")
 
-# The signed URL is a capability; do not echo it or add the bearer token.
-curl --fail-with-body --silent --show-error \
-  -X PUT "$UPLOAD_URL" \
-  -H "Content-Type: $CONTENT_TYPE" \
-  --upload-file "$FILE" >/dev/null
+# The signed URL authorizes itself: do not print it and do not add the bearer token.
+curl --fail-with-body --silent --show-error -X PUT "$(jq -er .upload_url <<<"$TICKET")" \
+  -H "Content-Type: $CONTENT_TYPE" --upload-file "$FILE" >/dev/null
 
-jq -n --arg media "$MEDIA_URL" --arg field "$REFERENCE_FIELD" \
-  '{model:"wan-3-prime", prompt:"Use the uploaded reference to guide a short cinematic shot", duration:5, resolution:"720p", aspect_ratio:"16:9"} | .[$field]=[{url:$media}]' \
+jq -n --arg media "$(jq -er .media_url <<<"$TICKET")" --arg field "$FIELD" --arg mention "$MENTION" \
+  '{model: "wan-3-prime", prompt: ("A short cinematic shot built around " + $mention + ", slow push-in, soft daylight"),
+    duration: 5, resolution: "720p", aspect_ratio: "16:9"} | .[$field] = [{url: $media}]' \
   | curl --fail-with-body --silent --show-error \
-      -X POST "$BASE/v1/videos/generations" \
-      -H "Authorization: Bearer $ARGOLINK_API_KEY" \
+      -X POST "$BASE/videos/generations" \
+      -H "Authorization: Bearer $WAN_API_KEY" \
       -H 'Content-Type: application/json' \
       --data-binary @- \
-  | jq '{request_id, status}'
+  | jq -r '.request_id'
